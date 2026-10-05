@@ -1,0 +1,148 @@
+name: zh-Hans host UI build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [zh-full-v31]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zh-host-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  LIVE_CONTAINER_REF: 12377cf3b91d51739a33f14a302e5f522b238593
+  EMBEDDED_SIDESTORE_REF: ff25922e5c13ccfafd83bda5092910d848ebd409
+  MINIMUXER_REF: 98c3c79982f813878e922ab42f9545314a700f0c
+  SIDESIGN_REF: a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d
+  SIDESIGN_GSA_FIX: 35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c
+  IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
+  JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
+
+jobs:
+  host-ui-build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: builder
+          persist-credentials: false
+
+      - name: Checkout pinned LiveContainer sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/logs
+          git clone --filter=blob:none https://github.com/hugeBlack/LiveContainer.git work/LiveContainer
+          git -C work/LiveContainer checkout --detach "$LIVE_CONTAINER_REF"
+          # The historical LiveContainer/litehook fork moved; the pinned commit
+          # still exists in upstream opa334/litehook, so preserve the exact SHA
+          # while using the live public source URL.
+          git -C work/LiveContainer config submodule.litehook.url https://github.com/opa334/litehook.git
+          git -C work/LiveContainer submodule update --init --recursive --depth=1
+
+      - name: Checkout pinned embedded SideStore sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/SideStore/SideStore.git work/EmbeddedSideStore
+          git -C work/EmbeddedSideStore checkout --detach "$EMBEDDED_SIDESTORE_REF"
+          git -C work/EmbeddedSideStore submodule update --init --recursive --depth=1
+
+      - name: Select Xcode 26.4
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: "26.4"
+
+      - name: Apply and verify host integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            python3 builder/scripts/patch_livecontainer_autorefresh.py work/LiveContainer
+            python3 builder/scripts/patch_livecontainer_autorefresh.py work/LiveContainer
+            python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_dead10cc_fix.py work/LiveContainer
+            python3 builder/scripts/patch_dead10cc_fix.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
+            python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
+            python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
+            python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
+            swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
+            python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("background_patch", "builder/scripts/patch_background_automation.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.patch_background_operation(Path("work/EmbeddedSideStore"))
+          module.patch_console_log(Path("work/EmbeddedSideStore"))
+          PY
+            python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
+            python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
+            # The shared-Keychain contract completes SignInOperation here.
+            # Verify both pinned transforms before combined startup appends
+            # its separate backend overlay to SideStore's AppDelegate.
+            python3 builder/scripts/patch_v3_service.py --verify-headless-ui-adapters \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
+            python3 builder/scripts/patch_v3_service.py --verify-sign-in-operation \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift
+            swiftc -frontend -parse work/LiveContainer/SideStoreSupport/SideStore.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/AltStore/AppDelegate.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/AltStore/Core/Model/DatabaseManager/DatabaseManager.swift
+            plutil -lint work/LiveContainer/LiveContainer/Info.plist
+            plutil -extract BGTaskSchedulerPermittedIdentifiers.0 raw work/LiveContainer/LiveContainer/Info.plist
+            grep -Fq 'LIVE_REFRESH_LOG_RETENTION_V1' work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
+          } 2>&1 | tee artifacts/logs/host-preflight.log
+
+      - name: Apply zh-Hans display layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/patch_zh_hans_runtime.py work/LiveContainer
+          python3 builder/scripts/patch_zh_hans_runtime.py work/LiveContainer
+          swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
+
+      - name: Build unified host before transport compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project work/LiveContainer/LiveContainer.xcodeproj \
+            -scheme LiveContainer -sdk iphoneos -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/livecontainer-derived-data" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/livecontainer-build.log
+
+      - name: Upload host build products
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zh-host-products
+          path: |
+            ${{ runner.temp }}/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app
+            artifacts/logs
+          if-no-files-found: warn
+          retention-days: 7
