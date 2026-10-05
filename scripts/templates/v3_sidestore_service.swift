@@ -1751,7 +1751,12 @@ final class V3SideStoreService: NSObject {
             return try snapshot()
         case "refreshSources":
             try await ensureKnownSourcesUpdated()
-            try await callback { done in AppManager.shared.updateAllSources(completion: done) }
+            do {
+                try await callback { done in AppManager.shared.updateAllSources(completion: done) }
+            } catch {
+                if let classified = V3SourceCommandError.classifyRefresh(error) { throw classified }
+                throw error
+            }
             return try snapshot()
         case "jit":
             let app: InstalledApp = try object(target)

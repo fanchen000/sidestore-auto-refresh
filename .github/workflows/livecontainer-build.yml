@@ -196,6 +196,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 builder/scripts/patch_zh_hans_runtime.py work/LiveContainer
+          python3 builder/scripts/patch_zh_hans_runtime.py work/LiveContainer
           xcodebuild -project work/LiveContainer/LiveContainer.xcodeproj \
             -scheme LiveContainer -sdk iphoneos -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/livecontainer-derived-data" \
@@ -207,6 +209,16 @@ jobs:
           if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
           if ! command -v bindgen >/dev/null 2>&1; then cargo install --locked bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
+
+      - name: Build pinned upstream dylibify
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/jakeajames/dylibify/17cc528402714ad1bd918cbb2ebcb6976e80540a/main.m \
+            -o "$RUNNER_TEMP/dylibify-main.m"
+          clang "$RUNNER_TEMP/dylibify-main.m" -framework Foundation -fobjc-arc -o "$RUNNER_TEMP/dylibify"
+          test -x "$RUNNER_TEMP/dylibify"
+          echo "COMBINED_DYLIBIFY=$RUNNER_TEMP/dylibify" >> "$GITHUB_ENV"
 
       - name: Execute canonical LiveContainer certificate observation regression
         env:

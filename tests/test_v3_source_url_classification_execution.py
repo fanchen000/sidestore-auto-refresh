@@ -213,6 +213,40 @@ struct SourceError: Error, LocalizedError {
             }
         }
 
+        let networkError = NSError(domain: NSURLErrorDomain, code: URLError.timedOut.rawValue,
+            userInfo: [NSLocalizedDescriptionKey: "PRIVATE_SOURCE_URL"])
+        let wrappedNetwork = NSError(domain: "FetchSourcesError", code: 0,
+            userInfo: [NSMultipleUnderlyingErrorsKey: [networkError, networkError]])
+        guard let aggregate = V3SourceCommandError.classifyRefresh(wrappedNetwork) else {
+            preconditionFailure("uniform wrapped source errors must preserve their known cause")
+        }
+        precondition(aggregate.safeCause == .sourceNetworkFailure)
+        precondition(aggregate.domain == NSURLErrorDomain && aggregate.code == URLError.timedOut.rawValue)
+
+        let parsingError = NSError(domain: "io.sidestore.SideStore.DecodingError", code: 0)
+        let mixed = NSError(domain: "FetchSourcesError", code: 0,
+            userInfo: [NSMultipleUnderlyingErrorsKey: [networkError, parsingError]])
+        precondition(V3SourceCommandError.classifyRefresh(mixed) == nil)
+        let cancelled = NSError(domain: "FetchSourcesError", code: 0,
+            userInfo: [NSMultipleUnderlyingErrorsKey: [networkError, CancellationError()]])
+        precondition(V3SourceCommandError.classifyRefresh(cancelled) == nil)
+        let unknown = NSError(domain: "FetchSourcesError", code: 0,
+            userInfo: [NSMultipleUnderlyingErrorsKey: [networkError, NSError(domain: "unknown", code: 1)]])
+        precondition(V3SourceCommandError.classifyRefresh(unknown) == nil)
+        precondition(V3SourceCommandError.classifyRefresh(NSError(domain: "unknown", code: 1)) == nil)
+
+        let differentNetworkCode = NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)
+        let sameCause = NSError(domain: "FetchSourcesError", code: 0,
+            userInfo: [NSMultipleUnderlyingErrorsKey: [networkError, differentNetworkCode]])
+        guard let combined = V3SourceCommandError.classifyRefresh(sameCause) else {
+            preconditionFailure("same semantic cause with different native codes remains classifiable")
+        }
+        precondition(combined.safeCause == .sourceNetworkFailure)
+        precondition(combined.domain == "none" && combined.code == 0)
+        var nested: NSError = networkError
+        for _ in 0..<9 { nested = NSError(domain: "wrapper", code: 0, userInfo: [NSUnderlyingErrorKey: nested]) }
+        precondition(V3SourceCommandError.classifyRefresh(nested) == nil)
+
         let pinnedSourceCodes: [SourceError.Code] = [PINNED_CASES]
         let expectedSourceCauses: [SourceError.Code: CombinedFailure.SafeCause] = [
             EXPECTED_SOURCE_CAUSES
@@ -229,6 +263,9 @@ struct SourceError: Error, LocalizedError {
             precondition(classified.safeCause == expectedSafeCause,
                 "pinned SourceError.Code case has the wrong safe cause: \(code)")
             precondition(classified.sourceStep == .sourceValidation)
+            let wrappedSource = NSError(domain: "FetchSourcesError", code: 0,
+                userInfo: [NSMultipleUnderlyingErrorsKey: [sourceError]])
+            precondition(V3SourceCommandError.classifyRefresh(wrappedSource)?.safeCause == expectedSafeCause)
             precondition(classified.domain != NSURLErrorDomain)
             precondition(classified.safeCause != .sourceNetworkFailure)
 

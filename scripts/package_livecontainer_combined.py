@@ -77,6 +77,9 @@ def replace_once(text, old, new):
 
 
 def adapt(text):
+    text = replace_once(text,
+        'wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify',
+        'test -n "${COMBINED_DYLIBIFY:-}"\ncp "$COMBINED_DYLIBIFY" dylibify')
     text = replace_once(text, 'brew install ldid', 'command -v ldid >/dev/null')
     text = replace_once(text, 'wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa',
                         'cp "$PATCHED_SIDESTORE_IPA" SideStore.ipa')

@@ -80,7 +80,8 @@ class CombinedPackagingTests(unittest.TestCase):
                 share_packaged_app_groups(app)
 
     def test_upstream_adapter_retains_transformations(self):
-        script = '''brew install ldid
+        script = '''wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
+brew install ldid
 wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
 ./dylibify input output
 mv widget destination
@@ -102,6 +103,8 @@ zip output Payload
         self.assertLess(result.index('--prepare-entitlements'), result.index('zip output'))
         self.assertTrue(result.startswith('set -eu\n'))
         self.assertNotIn('find payloadlc/', result)
+        self.assertIn('cp "$COMBINED_DYLIBIFY" dylibify', result)
+        self.assertNotIn('https://github.com/LiveContainer/dylibify', result)
 
     def test_adapter_fails_closed_on_changed_upstream(self):
         with self.assertRaises(ValueError):
@@ -112,7 +115,8 @@ zip output Payload
             adapt('brew install ldid\nbrew install ldid\n')
 
     def test_adapter_stages_host_intents_then_removes_backend_metadata_inputs(self):
-        script = '''brew install ldid
+        script = '''wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
+brew install ldid
 wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
 rm -r .zsign_cache
 find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +

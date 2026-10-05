@@ -2287,12 +2287,43 @@ enum V3SideStoreServiceError: String, Error {
 }
 
 struct V3SourceCommandError: Error {
-    enum Kind { case network, invalidManifest, validation }
+    enum Kind: Equatable { case network, invalidManifest, validation }
     let kind: Kind
     let domain: String
     let code: Int
     let safeCause: CombinedFailure.SafeCause
     let sourceStep: CombinedFailure.SourceStep
+
+    // Refresh All wraps per-source errors in FetchSourcesError and NSError.
+    // Classify the underlying errors before crossing the service boundary.
+    // Mixed, cancelled, or unknown results keep the original failure.
+    static func classifyRefresh(_ error: Error) -> V3SourceCommandError? {
+        guard let leaves = refreshFailureLeaves(error, depth: 0),
+              let first = leaves.first,
+              leaves.allSatisfy({ $0.kind == first.kind && $0.safeCause == first.safeCause
+                  && $0.sourceStep == first.sourceStep }) else { return nil }
+        let sameNative = leaves.allSatisfy { $0.domain == first.domain && $0.code == first.code }
+        return V3SourceCommandError(kind: first.kind,
+            domain: sameNative ? first.domain : "none", code: sameNative ? first.code : 0,
+            safeCause: first.safeCause, sourceStep: first.sourceStep)
+    }
+
+    private static func refreshFailureLeaves(_ error: Error, depth: Int) -> [V3SourceCommandError]? {
+        guard depth < 8 else { return nil }
+        let native = error as NSError
+        guard !(error is CancellationError),
+              !CombinedFailure.isURLCancellation(domain: native.domain, code: native.code) else { return nil }
+        if let known = classify(error) { return [known] }
+        var children = native.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error] ?? []
+        if let primary = native.userInfo[NSUnderlyingErrorKey] as? Error { children.append(primary) }
+        guard !children.isEmpty else { return nil }
+        var result: [V3SourceCommandError] = []
+        for child in children {
+            guard let classified = refreshFailureLeaves(child, depth: depth + 1) else { return nil }
+            result.append(contentsOf: classified)
+        }
+        return result.isEmpty ? nil : result
+    }
 
     static func classify(_ error: Error) -> V3SourceCommandError? {
         let native = error as NSError
