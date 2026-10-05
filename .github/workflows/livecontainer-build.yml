@@ -31,6 +31,14 @@ jobs:
           path: builder
           persist-credentials: false
 
+      - name: Configure GitHub read authentication
+        shell: bash
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config --global url."https://x-access-token:${GH_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Checkout pinned LiveContainer sources
         shell: bash
         run: |
