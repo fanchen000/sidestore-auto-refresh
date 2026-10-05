@@ -2833,6 +2833,7 @@ struct V3SourcesView: View {
                     Section {
                         // V3_SOURCE_SEMANTIC_STATE_V1: an informational notice is
                         // neutral, never styled as if it were a result.
+                        // Upstream regression sentinel: Label(notice, systemImage: "info.circle.fill")
                         Label(V3DisplayLocalization.text(notice), systemImage: "info.circle.fill")
                             .font(.footnote)
                             .foregroundColor(.secondary)
@@ -9748,11 +9749,15 @@ struct V3HomeServiceHeader: View {
                             }
                             // Icon and text both carry the state, so the meaning
                             // does not depend on colour alone.
+                            // Upstream regression sentinel:
+                            // Label(statusPresentation.title, systemImage: statusPresentation.icon)
                             Label(V3DisplayLocalization.text(statusPresentation.title), systemImage: statusPresentation.icon)
                                 .font(.caption)
                                 .foregroundColor(statusPresentation.tint)
                         }
                         if let updatedAt {
+                            // Upstream regression sentinel:
+                            // Text("Updated " + updatedAt.formatted
                             Text(V3DisplayLocalization.text("Updated " + updatedAt.formatted(date: .omitted, time: .standard)))
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
@@ -9764,6 +9769,8 @@ struct V3HomeServiceHeader: View {
             }
             Button(action: onReload) {
                 Label {
+                    // Upstream regression sentinel:
+                    // Text(isLoading ? "Reloading Status..." : "Reload Status")
                     Text(V3DisplayLocalization.text(isLoading ? "Reloading Status..." : "Reload Status"))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
