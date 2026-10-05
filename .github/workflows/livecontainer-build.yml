@@ -31,20 +31,12 @@ jobs:
           path: builder
           persist-credentials: false
 
-      - name: Configure GitHub read authentication
-        shell: bash
-        env:
-          GH_READ_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git config --global url."https://x-access-token:${GH_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
-
       - name: Checkout pinned LiveContainer sources
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/logs
-          git clone --filter=blob:none https://github.com/LiveContainer/LiveContainer.git work/LiveContainer
+          git clone --filter=blob:none https://github.com/hugeBlack/LiveContainer.git work/LiveContainer
           git -C work/LiveContainer checkout --detach "$LIVE_CONTAINER_REF"
           git -C work/LiveContainer submodule update --init --recursive --depth=1
 
@@ -52,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --filter=blob:none https://github.com/LiveContainer/SideStore.git work/EmbeddedSideStore
+          git clone --filter=blob:none https://github.com/SideStore/SideStore.git work/EmbeddedSideStore
           git -C work/EmbeddedSideStore checkout --detach "$EMBEDDED_SIDESTORE_REF"
           git -C work/EmbeddedSideStore submodule update --init --recursive --depth=1
 
