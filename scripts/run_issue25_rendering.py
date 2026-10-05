@@ -164,7 +164,23 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     if not severity_model or not tint_model:
         raise RuntimeError("Semantic status model not found for the Reload Status layout probe")
     generated_header.write_text("import SwiftUI\n" + severity_model + "\n" + tint_model + "\n" + header)
-    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated, generated_header,
+
+    # Custom/localized shells may render dynamic runtime status text through a
+    # tiny presentation helper. The native rendering fixture extracts only the
+    # production sections it measures, so include that helper as its own source
+    # when present instead of stubbing it out. This keeps the fixture compiling
+    # the real UI expressions without changing production layout behavior.
+    extra_sources = []
+    localization_anchor = "enum V3DisplayLocalization {"
+    if localization_anchor in text:
+        localization_start = text.index(localization_anchor)
+        localization_end_anchor = "\n}\n\nenum V3AppIdentity"
+        localization_end = text.index(localization_end_anchor, localization_start) + len("\n}\n")
+        localization_source = build / "V3DisplayLocalization.swift"
+        localization_source.write_text("import Foundation\n" + text[localization_start:localization_end])
+        extra_sources.append(localization_source)
+
+    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", *extra_sources, generated, generated_header,
                ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     hashes["original-V3InstalledAppsSection"] = hashlib.sha256(section.encode()).hexdigest()
