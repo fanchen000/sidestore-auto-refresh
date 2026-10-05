@@ -38,6 +38,10 @@ jobs:
           mkdir -p artifacts/logs
           git clone --filter=blob:none https://github.com/hugeBlack/LiveContainer.git work/LiveContainer
           git -C work/LiveContainer checkout --detach "$LIVE_CONTAINER_REF"
+          # The historical LiveContainer/litehook fork moved; the pinned commit
+          # still exists in upstream opa334/litehook, so preserve the exact SHA
+          # while using the live public source URL.
+          git -C work/LiveContainer config submodule.litehook.url https://github.com/opa334/litehook.git
           git -C work/LiveContainer submodule update --init --recursive --depth=1
 
       - name: Checkout pinned embedded SideStore sources
