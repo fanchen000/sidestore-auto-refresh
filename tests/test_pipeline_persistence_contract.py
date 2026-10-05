@@ -76,6 +76,90 @@ class PipelinePersistenceContractTests(unittest.TestCase):
                 fixture.apply(roots)
             self.assertEqual(before, fixture.snapshot(directory))
 
+    def test_expiration_notification_failure_is_isolated_after_persisted_success(self):
+        service = module("patch_v3_service")
+        source = self.pinned("SideStore/Core/Operations/PipelineRunner.swift")
+        persisted = service.headless_pipeline_persistence_contract(source)
+        patched = service.headless_pipeline_notification_contract(persisted)
+        self.assertEqual(service.headless_pipeline_notification_contract(patched), patched)
+        method = swift_declaration(patched, "func performOperation(for operation:")
+        self.assertLess(method.index("V3MutationPersistencePolicy.persistResult"),
+                        method.index("group.set(.success(result)"))
+        self.assertLess(method.index("group.set(.success(result)"),
+                        method.index("V3_POST_SUCCESS_NOTIFICATION_WARNING_V1"))
+        notification = swift_declaration(method, "if result.bundleIdentifier == StoreApp.altstoreAppID")
+        self.assertIn("} catch {", notification)
+        self.assertIn("persisted_install_result_preserved", notification)
+        self.assertNotIn("group.set(.failure", notification)
+        self.assertNotIn("error.localizedDescription", notification)
+        with self.assertRaisesRegex(SystemExit, "notification contract drift"):
+            service.headless_pipeline_notification_contract(patched.replace(
+                "persisted_install_result_preserved", "changed", 1))
+
+    def test_notification_permission_denial_does_not_throw_after_install_success(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Executable Swift behavior runs in macOS CI")
+        service = module("patch_v3_service")
+        source = self.pinned("SideStore/Core/Operations/PipelineRunner.swift")
+        patched = service.headless_pipeline_notification_contract(source)
+        statement = swift_declaration(patched,
+            "if result.bundleIdentifier == StoreApp.altstoreAppID")
+        harness = '''
+import Foundation
+struct InstalledResult { let bundleIdentifier: String }
+enum StoreApp { static let altstoreAppID = "host" }
+enum Steps { case scheduleExpirationWarningNotification }
+struct StandaloneOperationContext { init(steps: Steps, dbBackgroundContext: Int) {} }
+struct GroupContext { let dbBackgroundContext = 0 }
+struct Group { let context = GroupContext() }
+var notificationFault: Error?
+var notificationCalls = 0
+var warningCalls = 0
+func debugLog(_ text: String) {
+    precondition(!text.contains("SECRET_PROVIDER_DETAIL"))
+    warningCalls += 1
+}
+struct ScheduleExpirationWarningNotificationOperation {
+    init(installedApp: InstalledResult, context: StandaloneOperationContext) throws {}
+    func execute() async throws {
+        notificationCalls += 1
+        if let fault = notificationFault { throw fault }
+    }
+}
+func afterPersistedSuccess(bundle: String) async throws {
+    let result = InstalledResult(bundleIdentifier: bundle)
+    let group = Group()
+''' + statement + '''
+}
+@main struct Tests {
+    static func main() async throws {
+        try await afterPersistedSuccess(bundle: "host")
+        precondition(notificationCalls == 1 && warningCalls == 0)
+        notificationFault = NSError(domain: "UNErrorDomain", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "SECRET_PROVIDER_DETAIL"])
+        try await afterPersistedSuccess(bundle: "host")
+        precondition(notificationCalls == 2 && warningCalls == 1)
+        notificationFault = CancellationError()
+        try await afterPersistedSuccess(bundle: "host")
+        precondition(notificationCalls == 3 && warningCalls == 2)
+        try await afterPersistedSuccess(bundle: "other")
+        precondition(notificationCalls == 3 && warningCalls == 2)
+        print("Post-success notification contract PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as name:
+            swift = Path(name) / "notification_contract.swift"
+            executable = swift.with_suffix("")
+            swift.write_text(harness, encoding="utf-8")
+            build = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library",
+                                    str(swift), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(executable)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("PASS", run.stdout)
+
     def test_persistence_failure_survives_upstream_error_mapping_and_refresh_verification(self):
         compiler = shutil.which("swiftc")
         if not compiler:

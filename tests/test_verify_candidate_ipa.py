@@ -578,13 +578,25 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ZIP64 archives are unsupported"):
                 verify_module.preflight_zip_directory(ipa, ipa.stat().st_size)
 
-    def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
+    def test_provenance_run_url_accepts_forks_and_binds_exact_workflow(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
+        fork = "https://github.com/fanchen000/sidestore-auto-refresh/actions/runs/37359974982"
         self.assertTrue(verify_module.is_github_actions_run_url(good))
+        self.assertTrue(verify_module.is_github_actions_run_url(fork))
         self.assertFalse(verify_module.is_github_actions_run_url("https://github.com/"))
-        self.assertFalse(verify_module.is_github_actions_run_url(
-            "https://github.com/other/repo/actions/runs/36372125879"))
-        self.assertFalse(verify_module.is_github_actions_run_url(good + "?query=1"))
+        for invalid in (good + "?query=1", good + "#fragment", good + "\n",
+                        good.replace("https:", "http:"),
+                        good.replace("github.com/", "github.com.evil.example/"),
+                        good.replace("github.com/", "user@github.com/"),
+                        good.replace("36372125879", "0")):
+            self.assertFalse(verify_module.is_github_actions_run_url(invalid))
+        verify_module.verify_build_run_url(fork, fork, fork)
+        with self.assertRaisesRegex(ValueError, "embedded GitHub Actions run"):
+            verify_module.verify_build_run_url(fork, good, fork)
+        for wrong in (good, fork.replace("37359974982", "37359974983"),
+                      fork.replace("fanchen000", "other-owner")):
+            with self.assertRaisesRegex(ValueError, "this Actions run"):
+                verify_module.verify_build_run_url(fork, fork, wrong)
 
     def test_duplicate_zip_members_are_rejected_instead_of_last_entry_wins(self):
         with tempfile.TemporaryDirectory() as directory:

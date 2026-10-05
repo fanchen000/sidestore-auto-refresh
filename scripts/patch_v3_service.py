@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 48
+PATCH_VERSION = 49
 
 
 def runtime_app_group_environment_key() -> str:
@@ -1603,6 +1603,40 @@ def headless_pipeline_handler(text):
     return patched
 
 
+def headless_pipeline_notification_contract(text):
+    """Keep an expiration-alert failure from reversing a persisted install result."""
+    marker = "V3_POST_SUCCESS_NOTIFICATION_WARNING_V1"
+    old = '''            if result.bundleIdentifier == StoreApp.altstoreAppID {
+                let context = StandaloneOperationContext(steps: .scheduleExpirationWarningNotification, dbBackgroundContext: group.context.dbBackgroundContext)
+                let scheduleNotifOp = try ScheduleExpirationWarningNotificationOperation(
+                    installedApp: result,
+                    context: context
+                )
+                try await scheduleNotifOp.execute()
+            }'''
+    new = '''            if result.bundleIdentifier == StoreApp.altstoreAppID {
+                // V3_POST_SUCCESS_NOTIFICATION_WARNING_V1: native installation and
+                // durable persistence have completed. Alert delivery is auxiliary.
+                do {
+                    let context = StandaloneOperationContext(steps: .scheduleExpirationWarningNotification, dbBackgroundContext: group.context.dbBackgroundContext)
+                    let scheduleNotifOp = try ScheduleExpirationWarningNotificationOperation(
+                        installedApp: result,
+                        context: context
+                    )
+                    try await scheduleNotifOp.execute()
+                } catch {
+                    debugLog("[V3_NOTIFICATION] expiration_alert_unavailable; persisted_install_result_preserved")
+                }
+            }'''
+    if marker in text:
+        if text.count(new) != 1 or old in text:
+            raise SystemExit("v3 service: post-success notification contract drift")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: PipelineRunner notification callsite changed")
+    return text.replace(old, new, 1)
+
+
 def headless_pipeline_persistence_contract(text):
     """Require durable installed-app persistence after a successful mutation."""
     marker = "V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1"
@@ -2625,7 +2659,8 @@ def patch(live, side):
     edit(side, "SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
-         headless_pipeline_persistence_contract)
+         lambda source: headless_pipeline_notification_contract(
+             headless_pipeline_persistence_contract(source)))
     certificate_serial_log_files = (
         ("SideStore/Core/Certificates/CertificateManager.swift", "CertificateManager"),
         ("SideStore/Core/Certificates/OCSPValidator.swift", "OCSPValidator"),

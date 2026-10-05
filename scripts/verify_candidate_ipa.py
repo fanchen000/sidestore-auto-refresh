@@ -666,10 +666,19 @@ def preserved_dsym_uuids(evidence_root: Path, packaged_uuids: set[str]) -> dict[
 def is_github_actions_run_url(value: object) -> bool:
     if not isinstance(value, str):
         return False
-    parsed = urlsplit(value)
-    return (parsed.scheme == "https" and parsed.netloc == "github.com" and
-            re.fullmatch(r"/NRG-Wardog/sidestore-auto-refresh/actions/runs/[0-9]+", parsed.path) is not None and
-            not parsed.query and not parsed.fragment)
+    # Forks have their own Actions URLs. Shape validation is separate from
+    # binding the embedded URL and provenance to the exact workflow invocation.
+    return re.fullmatch(
+        r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?"
+        r"/[A-Za-z0-9_.-]+/actions/runs/[1-9][0-9]*", value) is not None
+
+
+def verify_build_run_url(build_run_url, embedded_run_url, expected_run_url):
+    if (not is_github_actions_run_url(build_run_url) or
+            build_run_url != embedded_run_url):
+        raise ValueError("provenance build run URL does not match the embedded GitHub Actions run")
+    if expected_run_url is not None and build_run_url != expected_run_url:
+        raise ValueError("candidate workflow run URL does not match this Actions run")
 
 
 def has_required_livecontainer_groups(groups) -> bool:
@@ -1144,11 +1153,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
     if expected_builder_commit is not None and info.get("LCBuilderCommit") != expected_builder_commit:
         raise ValueError("candidate builder SHA does not match the exact workflow commit")
     build_run_url = provenance.get("LCBuildRunURL")
-    if (not is_github_actions_run_url(build_run_url) or
-            build_run_url != info.get("LCBuildRunURL")):
-        raise ValueError("provenance build run URL does not match the embedded GitHub Actions run")
-    if expected_run_url is not None and build_run_url != expected_run_url:
-        raise ValueError("candidate workflow run URL does not match this Actions run")
+    verify_build_run_url(build_run_url, info.get("LCBuildRunURL"), expected_run_url)
     framework_uuids = provenance.get("framework_uuids")
     if not isinstance(framework_uuids, dict) or framework_uuids != binary_uuid_report:
         raise ValueError("provenance Mach-O UUID inventory does not match every packaged executable")
