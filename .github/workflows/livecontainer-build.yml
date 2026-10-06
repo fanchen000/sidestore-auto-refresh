@@ -210,11 +210,15 @@ jobs:
           if ! command -v bindgen >/dev/null 2>&1; then cargo install --locked bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
 
-      - name: Build pinned upstream dylibify
+      - name: Build pinned LiveContainer dylibify
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://raw.githubusercontent.com/jakeajames/dylibify/17cc528402714ad1bd918cbb2ebcb6976e80540a/main.m \
+          # LiveContainer's fork (5daf713) also rewrites the chained-fixups
+          # segment table after removing __PAGEZERO. The original jakeajames
+          # tool leaves seg_count one too high, and iOS 27 dyld then refuses
+          # to load the embedded SideStore inside LiveProcess.
+          curl -fsSL https://raw.githubusercontent.com/LiveContainer/dylibify/5daf713df9fb07724510490c88aa8e00061be14a/main.m \
             -o "$RUNNER_TEMP/dylibify-main.m"
           clang "$RUNNER_TEMP/dylibify-main.m" -framework Foundation -fobjc-arc -o "$RUNNER_TEMP/dylibify"
           test -x "$RUNNER_TEMP/dylibify"

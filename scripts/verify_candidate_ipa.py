@@ -962,6 +962,29 @@ def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
         return verify_side_store_assetutil_records(records)
 
 
+
+def verify_dylib_chained_fixups_segments(data: bytes) -> None:
+    """Reject a dylibified binary whose chained-fixups table still counts __PAGEZERO."""
+    import struct
+    if len(data) < 32 or struct.unpack_from("<I", data, 0)[0] != 0xFEEDFACF:
+        raise ValueError("embedded SideStore executable is not a thin arm64 Mach-O")
+    ncmds = struct.unpack_from("<I", data, 16)[0]
+    offset, segments, fixups = 32, 0, None
+    for _ in range(ncmds):
+        cmd, size = struct.unpack_from("<II", data, offset)
+        if cmd == 0x19:
+            segments += 1
+        elif cmd == 0x80000034:
+            fixups = struct.unpack_from("<I", data, offset + 8)[0]
+        offset += size
+    if fixups is None:
+        return
+    starts = struct.unpack_from("<I", data, fixups + 4)[0]
+    seg_count = struct.unpack_from("<I", data, fixups + starts)[0]
+    if seg_count != segments:
+        raise ValueError("embedded SideStore chained fixups count %d segments but the "
+                         "header has %d; dyld on iOS 27 will refuse to load it" % (seg_count, segments))
+
 def verify(ipa: Path, provenance_path: Path, product: str,
            side_source: Path | None = None, expected_builder_commit: str | None = None,
            expected_run_url: str | None = None) -> dict:
@@ -1032,6 +1055,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                              + ", ".join(legacy_resources[:8]))
         side_store_executable = side_store_path + "/" + side_store_info["CFBundleExecutable"]
         side_store_executable_data = archive.read(side_store_executable)
+        verify_dylib_chained_fixups_segments(side_store_executable_data)
         host_code = archive.read(BASE + "/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI")
         support_path = BASE + "/Frameworks/SideStoreSupport.framework"
         support_bundle = package_bundles[support_path]
