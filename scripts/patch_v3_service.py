@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 49
+PATCH_VERSION = 50
 
 
 def runtime_app_group_environment_key() -> str:
@@ -1603,6 +1603,22 @@ def headless_pipeline_handler(text):
     return patched
 
 
+def source_fetch_timeout(text):
+    """Give source downloads a usable timeout on slow cross-border links."""
+    # Upstream uses a 3 s per-request timeout. On the device's mainland China
+    # connection one of four sources regularly stalls past that, and Refresh
+    # All then fails with NSURLErrorTimedOut (-1001) although the feed is fine.
+    old = "public static let fetchTimeout: TimeInterval  = 3.0"
+    new = "public static let fetchTimeout: TimeInterval  = 30.0 // V3_SOURCE_FETCH_TIMEOUT_V1"
+    if new in text:
+        if old in text:
+            raise SystemExit("v3 service: source fetch timeout drift")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: AppConstants source fetch timeout changed")
+    return text.replace(old, new, 1)
+
+
 def headless_pipeline_notification_contract(text):
     """Keep an expiration-alert failure from reversing a persisted install result."""
     marker = "V3_POST_SUCCESS_NOTIFICATION_WARNING_V1"
@@ -2658,6 +2674,7 @@ def patch(live, side):
              apply_embedded_credential_snapshot_patch(source, "patch_auth_manager")))
     edit(side, "SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
+    edit(side, "SideStore/AppConstants.swift", source_fetch_timeout)
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
          lambda source: headless_pipeline_notification_contract(
              headless_pipeline_persistence_contract(source)))
