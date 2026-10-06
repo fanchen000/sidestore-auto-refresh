@@ -103,6 +103,20 @@ class SheetLifecycleTests(unittest.TestCase):
         completed = completed[:completed.index('case "cancelled":')]
         self.assertIn("progress = 1", completed)
 
+    def test_self_reinstall_lifecycle_action_is_bridged_to_visible_host(self):
+        sheet = operation_sheet()
+        runtime_source = runtime()
+        handler = runtime_source[runtime_source.index("final class V3HeadlessPipelineHandler:"):
+                                 runtime_source.index("// MARK: - Headless operation sessions")]
+        self.assertIn('requestHostAction(\n            sessionID: sessionID, action: "suspendForSelfReinstall")', handler)
+        self.assertIn("hasActiveHostLifecycleOwner(sessionID: sessionID)", handler)
+        self.assertNotIn("func isAppInForeground() async -> Bool { false }", handler)
+        self.assertIn('reply["hostAction"] = hostAction', runtime_source)
+        self.assertIn('handleHostAction(reply, sessionID: id)', sheet)
+        self.assertIn('reply["hostAction"] as? String == "suspendForSelfReinstall"', sheet)
+        self.assertIn('handledHostActionSessionID != sessionID', sheet)
+        self.assertIn('UIApplication.shared.perform(#selector(NSXPCConnection.suspend))', sheet)
+
     def test_cancelled_is_terminal_and_visible(self):
         sheet = operation_sheet()
         apply = sheet[sheet.index("private func apply"):]

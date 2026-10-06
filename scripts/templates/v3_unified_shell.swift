@@ -3,6 +3,7 @@ import Combine
 import SideStoreSupport
 import UniformTypeIdentifiers
 import UIKit
+import Foundation
 import CoreFoundation
 import CryptoKit
 import Security
@@ -3790,6 +3791,7 @@ struct V3OperationSheet: View {
     @State private var terminalBackendSettled: Bool?
     @State private var deviceCheckConfirmedForCompletion = false
     @State private var operationPhase = V3OperationPhase.working
+    @State private var handledHostActionSessionID: String?
     @State private var prompt: [String: Any]?
     @State private var sourceOffer: [String: String]?
     @State private var promptResponseBlocked = false
@@ -4245,6 +4247,7 @@ struct V3OperationSheet: View {
             }
             guard reply["session"] as? String == id else { return }
             apply(reply, generation: generation, sessionID: id)
+            handleHostAction(reply, sessionID: id)
             if V3OperationCompletionPolicy.shouldContinuePolling(state: current,
                 backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                 outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])) {
@@ -4253,6 +4256,14 @@ struct V3OperationSheet: View {
             guard current == "working" || current == "awaitingPrompt" || current == "cancelling" ||
                     current == "reconciling" else { return }
         }
+    }
+    private func handleHostAction(_ reply: [String: Any], sessionID: String) {
+        guard reply["hostAction"] as? String == "suspendForSelfReinstall",
+              handledHostActionSessionID != sessionID,
+              attempt.sessionID == sessionID else { return }
+        handledHostActionSessionID = sessionID
+        NSLog("[V3_OPERATION_UI] host_action session=%@ action=suspendForSelfReinstall", sessionID)
+        _ = UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
     }
     private func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
         guard let nextState = reply["state"] as? String else { return }

@@ -1424,8 +1424,20 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
     }
 
     func requestBackgroundSuspension() async {}
-    func suspendToHomeScreen() async {}
-    func isAppInForeground() async -> Bool { false }
+    func suspendToHomeScreen() async {
+        // The SideStore runtime is intentionally headless in v3. The visible
+        // operation sheet belongs to the LiveContainer host, so only that host
+        // can perform the lifecycle transition required by a self-reinstall.
+        await CellularRefreshManager.shared.turnOnDataIfNeeded()
+        V3HeadlessRuntime.shared.operations.requestHostAction(
+            sessionID: sessionID, action: "suspendForSelfReinstall")
+    }
+    func isAppInForeground() async -> Bool {
+        // InstallAppOperation only asks this while handling a self-reinstall.
+        // Treat ownership by the active host operation as the foreground
+        // authority instead of consulting this headless service's app state.
+        V3HeadlessRuntime.shared.operations.hasActiveHostLifecycleOwner(sessionID: sessionID)
+    }
 
     func recordNativeUninstallSucceeded() {
         V3DeleteNativeSuccessRegistry.shared.record(sessionID: sessionID)
@@ -1488,6 +1500,7 @@ final class V3OperationCenter {
         var ipaToken: String?
         var temporaryIPADirectory: URL?
         var acceptedPromptIDs: [String] = []
+        var hostAction: String?
     }
 
     var sessions: [String: Session] = [:]
@@ -1614,7 +1627,26 @@ final class V3OperationCenter {
             reply["state"] = "awaitingPrompt"
             reply["prompt"] = prompt
         }
+        if let hostAction = session.hostAction {
+            reply["hostAction"] = hostAction
+        }
         return reply
+    }
+
+    func hasActiveHostLifecycleOwner(sessionID: String) -> Bool {
+        guard mutationRegistry.activeID == sessionID,
+              let session = sessions[sessionID] else { return false }
+        return session.terminal.isEmpty && !session.terminal.isCancellationRequested
+    }
+
+    func requestHostAction(sessionID: String, action: String) {
+        guard mutationRegistry.activeID == sessionID,
+              var session = sessions[sessionID],
+              session.terminal.isEmpty,
+              !session.terminal.isCancellationRequested else { return }
+        session.hostAction = action
+        sessions[sessionID] = session
+        debugLog("[V3_OP] HOST_ACTION session=\(sessionID) action=\(action)")
     }
 
     func recordPipelineStep(sessionID: String, step: String, downloadUsesNetwork: Bool) {
