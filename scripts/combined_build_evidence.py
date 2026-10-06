@@ -56,8 +56,13 @@ def macho_uuid(data):
 
 def file_signature(stat_result):
     """Return stable file identity and timestamp fields for path-replacement checks."""
+    # On Windows, Python 3.12 fstat may report change time in st_ctime_ns,
+    # while stat still reports creation time. The explicit birth time has
+    # matching semantics for both calls. POSIX continues checking change time.
+    identity_time_ns = (getattr(stat_result, 'st_birthtime_ns', stat_result.st_ctime_ns)
+                        if os.name == 'nt' else stat_result.st_ctime_ns)
     return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size,
-            stat_result.st_mtime_ns, stat_result.st_ctime_ns)
+            stat_result.st_mtime_ns, identity_time_ns)
 
 
 def snapshot_ipa_file(path, limits=None):
