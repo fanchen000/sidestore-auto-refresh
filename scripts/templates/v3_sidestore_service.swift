@@ -2354,7 +2354,7 @@ final class V3SideStoreService: NSObject {
             recoveryStorageFailure = V3RecoveryStorageFailure(.readFailure, underlying: error)
         }
         let activeMutation = mutationID != nil || activeAuthenticationSessionID != nil ||
-            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive
+            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isExecuting
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
                     activeAuthenticationSessionID != nil ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||

@@ -131,6 +131,15 @@ class V3OperationRecoveryTests(unittest.TestCase):
             self.assertIn("rejectForUnresolvedRecovery()", shell[start:start + 1800])
         self.assertIn("ownerLost", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
 
+    def test_snapshot_distinguishes_lost_refresh_hold_from_executing_refresh(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        snapshot = service[service.index("    private func snapshot() throws") :]
+        activity = snapshot[snapshot.index("        let activeMutation =") : snapshot.index("        var response:")]
+        self.assertIn("refreshAdmission.isExecuting", activity)
+        self.assertNotIn("refreshAdmission.isActive", activity)
+        self.assertIn("refreshAdmission.isActive", snapshot[snapshot.index("        var response:") :])
+        self.assertIn("refreshActive: refreshAdmission.isActive", service)
+
 
 if __name__ == "__main__":
     unittest.main()

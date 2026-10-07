@@ -244,9 +244,19 @@ struct OperationRecoveryHarness {
         let refreshID = UUID().uuidString
         precondition(longRunningRefresh.acquire(runID: refreshID, requestID: UUID().uuidString,
             authenticationActive: false, anotherMutationActive: false, now: Date(timeIntervalSince1970: 10)))
+        precondition(longRunningRefresh.isExecuting)
+        precondition(!V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+            busy: longRunningRefresh.isActive, activeMutation: longRunningRefresh.isExecuting,
+            recoveryHold: true, hasTypedRecoveryEvidence: true),
+            "an executing refresh cannot be projected as a recovery-only snapshot")
         precondition(longRunningRefresh.expire(now: Date(timeIntervalSince1970: 10 + 661)))
         precondition(longRunningRefresh.isActive && longRunningRefresh.ownerLost,
             "elapsed time marks refresh ownership lost without releasing admission")
+        precondition(!longRunningRefresh.isExecuting)
+        precondition(V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+            busy: longRunningRefresh.isActive, activeMutation: longRunningRefresh.isExecuting,
+            recoveryHold: true, hasTypedRecoveryEvidence: true),
+            "expired refresh ownership must expose its recovery action without admitting writes")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
             responseCapacityAvailable: true, refreshActive: longRunningRefresh.isActive),
@@ -272,6 +282,16 @@ struct OperationRecoveryHarness {
         var restartedRefreshService = V3RefreshAdmissionLease()
         precondition(restartedRefreshService.restoreLost(runID: recoveredRefreshID))
         precondition(restartedRefreshService.isActive && restartedRefreshService.ownerLost)
+        precondition(!restartedRefreshService.isExecuting)
+        precondition(V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+            busy: restartedRefreshService.isActive,
+            activeMutation: restartedRefreshService.isExecuting,
+            recoveryHold: refreshRecoveryLease.record != nil, hasTypedRecoveryEvidence: true),
+            "cold start after a lost refresh must populate status and present its recovery action")
+        precondition(!V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+            busy: true, activeMutation: true,
+            recoveryHold: true, hasTypedRecoveryEvidence: true),
+            "another executing operation must still block recovery-only projection")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
             responseCapacityAvailable: true, refreshActive: restartedRefreshService.isActive),
@@ -279,6 +299,8 @@ struct OperationRecoveryHarness {
         precondition(!refreshRecoveryLease.reconcileRefreshAdmissionAfterDeviceCheck(
             runID: recoveredRefreshID, userConfirmed: false))
         precondition(refreshRecoveryLease.record != nil)
+        precondition(restartedRefreshService.isActive,
+            "reading recovery status must never clear the refresh admission hold")
         precondition(refreshRecoveryLease.settleRefreshAdmission(runID: recoveredRefreshID,
             terminalState: "failed", terminalConfirmed: true))
         precondition(refreshRecoveryLease.record == nil,

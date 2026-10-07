@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 50
+PATCH_VERSION = 51
 
 
 def runtime_app_group_environment_key() -> str:

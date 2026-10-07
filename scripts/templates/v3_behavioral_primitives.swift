@@ -5091,6 +5091,10 @@ struct V3RefreshAdmissionLease {
     private(set) var ownerLost = false
 
     var isActive: Bool { runID != nil }
+    // A lost owner still reserves admission, but it has no executing refresh
+    // in this service. Status reads must expose the recovery action while
+    // conflicting mutations continue to use isActive and remain blocked.
+    var isExecuting: Bool { isActive && !ownerLost }
 
     mutating func expire(now: Date = Date()) -> Bool {
         guard let expiresAt, expiresAt <= now, !ownerLost else { return false }
