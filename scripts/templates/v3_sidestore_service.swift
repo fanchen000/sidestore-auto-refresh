@@ -2111,6 +2111,9 @@ final class V3SideStoreService: NSObject {
             return ["servers": await V3BackendCommands.anisetteList()]
         case "anisetteReset":
             _ = try await AnisetteServersManager.shared.resetToOriginalState()
+            // Local fork: also drop the stale Anisette ADI blob, matching upstream
+            // SideStore's Reset adi.pb (identifier kept, re-provisioned on next sign-in).
+            Keychain.shared.adiPb = nil
             return ["servers": await V3BackendCommands.anisetteList()]
         case "anisetteSync":
             _ = try await AnisetteServersManager.shared.syncWithRemote()
