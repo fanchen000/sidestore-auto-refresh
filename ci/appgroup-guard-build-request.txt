@@ -1,0 +1,1 @@
+Public, unsigned-only macOS compilation of pinned LiveContainer 00546cec with reviewed App Group guard. No device installation and no user credentials.
