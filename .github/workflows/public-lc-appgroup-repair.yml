@@ -1,0 +1,65 @@
+name: Public isolated LiveContainer App Group repair
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/public-lc-appgroup-repair-20261018
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compile-host-guard:
+    runs-on: macos-26
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: builder
+          persist-credentials: false
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: '26.4'
+      - name: Checkout public pinned LiveContainer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/NRG-Wardog/LiveContainer.git work/LiveContainer
+          git -C work/LiveContainer checkout --detach 00546cec351adad1fa1cad5590da4f06e612db8f
+          git -C work/LiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive
+          test "$(git -C work/LiveContainer rev-parse HEAD)" = 00546cec351adad1fa1cad5590da4f06e612db8f
+          test -z "$(git -C work/LiveContainer diff --name-only)"
+      - name: Apply and isolate App Group guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="$GITHUB_WORKSPACE/builder/patches/livecontainer-nested-appgroup-guard.patch"
+          git -C work/LiveContainer apply --check "$patch"
+          git -C work/LiveContainer apply "$patch"
+          test "$(git -C work/LiveContainer diff --name-only)" = "LiveContainer/Tweaks/NSFileManager+GuestHooks.m"
+          git -C work/LiveContainer diff --check
+      - name: Compile unsigned native app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project work/LiveContainer/LiveContainer.xcodeproj -scheme LiveContainer -sdk iphoneos -configuration Release -derivedDataPath "$RUNNER_TEMP/lc-appgroup-guard-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+          test -s "$RUNNER_TEMP/lc-appgroup-guard-build/Build/Products/Release-iphoneos/LiveContainer.app/Info.plist"
+          test "$(git -C work/LiveContainer diff --name-only)" = "LiveContainer/Tweaks/NSFileManager+GuestHooks.m"
+      - name: Package clearly unsigned compile artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/Payload
+          cp -R "$RUNNER_TEMP/lc-appgroup-guard-build/Build/Products/Release-iphoneos/LiveContainer.app" artifacts/Payload/
+          cd artifacts
+          zip -qry LiveContainer-AppGroupGuard-NOT_SIGNED.ipa Payload
+          shasum -a 256 LiveContainer-AppGroupGuard-NOT_SIGNED.ipa > sha256.txt
+          printf 'UNSIGNED COMPILATION TEST ONLY. NOT APPROVED FOR DEVICE INSTALLATION.\n' > NOT_INSTALLED.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-lc-appgroup-guard-unsigned
+          path: |
+            artifacts/LiveContainer-AppGroupGuard-NOT_SIGNED.ipa
+            artifacts/sha256.txt
+            artifacts/NOT_INSTALLED.txt
